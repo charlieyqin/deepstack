@@ -1,0 +1,21 @@
+{
+  "name": "deepstack",
+  "version": "1.0.0",
+  "description": "Long stack traces for node.js",
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cevek/deepstack.git"
+  },
+  "keywords": [
+    "stacktrace",
+    "trace",
+    "stack"
+  ],
+  "author": "cevek",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/cevek/deepstack/issues"
+  },
+  "homepage": "https://github.com/cevek/deepstack#readme"
+}
