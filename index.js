@@ -1,6 +1,8 @@
 'use strict';
 
 let top = null;
+const OrigError = Error;
+const origCapture = Error.captureStackTrace;
 
 function patchCallback(callback, stack, name) {
     return function () {
@@ -22,16 +24,19 @@ function patchMethod(obj, name, pos, pos2) {
         throw new Error('Incorrect function');
     }
     obj[name] = function patched() {
-        //console.log(name);
         const stack = {}
         stack.parent = top;
-        Error.captureStackTrace(stack, patched);
+        origCapture(stack, patched);
         if (typeof pos == 'number') {
-            const fnPos = pos >= 0 ? pos : arguments.length - pos;
-            arguments[fnPos] = patchCallback(arguments[fnPos], stack, name);
+            const fnPos = pos >= 0 ? pos : arguments.length + pos;
+            if (typeof arguments[fnPos] == 'function'){
+                arguments[fnPos] = patchCallback(arguments[fnPos], stack, name);
+            }
             if (typeof pos2 !== 'undefined') {
-                const fnPos2 = pos2 >= 0 ? pos2 : arguments.length - pos2;
-                arguments[fnPos2] = patchCallback(arguments[fnPos2], stack, name);
+                const fnPos2 = pos2 >= 0 ? pos2 : arguments.length + pos2;
+                if (typeof fnPos2 == 'function') {
+                    arguments[fnPos2] = patchCallback(arguments[fnPos2], stack, name);
+                }
             }
             return fn.apply(this, arguments);
         } else if (typeof pos == 'function') {
@@ -46,11 +51,11 @@ function patchCtor(obj, name) {
     function Patched(arg) {
         const stack = {};
         stack.parent = top;
-        Error.captureStackTrace(stack, Patched);
+        origCapture(stack, Patched);
         return new Orig(patchCallback(arg, stack, name));
     }
 
-    Object.getOwnPropertyNames(Promise).forEach(prop => {
+    Object.getOwnPropertyNames(Orig).forEach(prop => {
         if (prop !== 'name' && prop !== 'length') {
             Patched[prop] = Orig[prop];
         }
@@ -58,21 +63,32 @@ function patchCtor(obj, name) {
     obj[name] = Patched;
 }
 
+
+function prepareStack(resultStack) {
+    let _top = top;
+    let stack = resultStack.split('\n');
+    while (_top) {
+        stack = mergeStack(stack, _top.stack.split('\n').slice(1));
+        _top = _top.parent;
+    }
+    return stack.join('\n')
+        .replace(/ +at.*?\/deepstack\/index.js.*?\n/g, '');
+
+}
+
 function patchError() {
-    const OrigError = Error;
     global.Error = function (message) {
         const result = new OrigError(message);
-        let _top = top;
-        let stack = result.stack.split('\n');
-        while (_top) {
-            stack = mergeStack(stack, _top.stack.split('\n').slice(1));
-            _top = _top.parent;
-        }
-        result.stack = stack.join('\n')
-            .replace(/ +at.*?\/deepstack\/index.js.*?\n/g, '');
+        result.stack = prepareStack(result.stack);
         return result;
     }
-    Error.captureStackTrace = OrigError.captureStackTrace;
+    Error.captureStackTrace = function(obj, fn){
+        origCapture(obj, fn);
+        var stack = obj.stack;
+        if (typeof stack == 'string') {
+            obj.stack = prepareStack(stack);
+        }
+    }
     Error.__defineGetter__('stackTraceLimit', () => OrigError.stackTraceLimit);
     Error.__defineSetter__('stackTraceLimit', val => OrigError.stackTraceLimit = val);
     Error.__defineGetter__('prepareStackTrace', () => OrigError.prepareStackTrace);
@@ -120,5 +136,17 @@ patchCtor(global, 'Promise');
 patchMethod(Promise.prototype, 'then', 0, 1);
 patchMethod(Promise.prototype, 'catch', 0);
 
+
+// patch bluebird
+var cache = module.constructor._cache;
+for (var i in cache) {
+    var bluebird = cache[i].exports;
+    if (i.indexOf('/bluebird/js/main/bluebird.js') > -1){
+        patchCtor(cache[i], 'exports');
+        patchMethod(bluebird.prototype, 'then', 0, 1);
+        patchMethod(bluebird.prototype, 'catch', 0);
+        patchMethod(bluebird.prototype, 'finally', 0);
+    }
+}
 
 
